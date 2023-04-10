@@ -2,42 +2,85 @@ from scrapy import *
 
 
 class Accommodation(Spider):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.business = ""
+    
     name = "finelib"
     start_urls = ["https://www.finelib.com/"]
+    
+    def join_lists_to_dict(self, list_a, list_b):
+        if len(list_a) != 0 and len(list_b) != 0:
+            my_dict = dict(zip(list_a, list_b))
+            return my_dict
+        else:
+            return {}
 
     def parse(self, response):
         links = response.css(
-            'div.category-list > ul > li > a::attr(href)').extract()
-        links = [link.replace('//', 'https://') for link in links]
+            'div.city-list > ul > li > a::attr(href)').extract()
+        links = [f"https://www.finelib.com{link}" for link in links if link.startswith("/")]
         for link in links:
             yield Request(url=link, callback=self.parse_links)
+            # yield {"link": link}
 
     def parse_links(self, response):
-        links = response.css("div.cmpny-lstng.url > a::attr(href)").extract()
-
+        links = response.css("div.city-list-inner.city-list-col > ul > li > a::attr(href)").extract()
+        links = [f"https://www.finelib.com{link}" for link in links if link.startswith("/")]
         for link in links:
             yield Request(url=link, callback=self.parse_pages)
 
     def parse_pages(self, response):
+        self.business = response.css("div.middle-curve > h1::text").extract_first()
+        links = response.css("div.category-list.newlist > ul > li > a::attr(href)").extract()
+        links = [f"https://www.finelib.com{link}" for link in links if link.startswith("/")]
+        more_info =  response.css("div.cmpny-lstng.url > a::attr(href)").extract()
+        for info in more_info:
+            yield Request(url=info, callback=self.parse_hyperlinks)
+            
+        next_page = response.css('div.paging-box a:last-child::attr(href)').extract_first()
+        if next_page is not None:
+            if next_page.startswith('/'):
+                next_page = f"https://www.finelib.com{next_page}"
+                yield Request(url=next_page, callback=self.parse_pages)
+            else:
+                yield Request(url=next_page, callback=self.parse_pages)
+        if links is not []:
+            for link in links:
+                yield Request(url=link, callback=self.parse_pages)
+            
+    def parse_hyperlinks(self, response):
         name = response.css(
-            "div.box-headings.box-new-hed > h1::text").extract()
-        address = response.css("div.cmpny-lstng-1::text").extract()
-        phonenumber = response.css("div.cmpny-lstng-1 > a::text").extract()
-        email = response.css(
+            "div.box-headings.box-new-hed > h1 > span::text").extract()
+        address = response.css("div.cmpny-lstng-1 > span::text").extract()
+        phonenumber = response.css(
+            "div.cmpny-lstng-1 > span > a::text").extract()
+        url = response.css(
             "div.tel-no-div > div.cmpny-lstng.url > a::text").extract()
-        try:
-            unsorted_obj = {
-                "name": name[0],
-                "address": address[0],
-                "phonenumber": phonenumber,
-                "email": email[0]
-            }
-            yield unsorted_obj
-        except:
-            unsorted_obj = {
-                "name": name[0],
-                "address": address[0],
-                "phonenumber": phonenumber,
-                "email": ""
-            }
-            yield unsorted_obj
+        url = url[0] if url != [] else ""
+        headings = response.css("div.subb-bx.MT-15 > h3::text").extract()
+        removing = ["Short Description", "E-mail Contact"]
+        short_description = response.css(
+            "div.subb-bx.MT-15 > p > span::text").extract()
+        email_contact = response.css(
+            "div.subb-bx.MT-15 > p > a::text").extract()
+        email_contact = "" if email_contact == [] else email_contact[0]
+        paragraphs = response.css("div.subb-bx.MT-15 > p::text").extract()
+        if removing[0] in headings:
+            headings.remove(removing[0])
+        if removing[1] in headings:
+            headings.remove(removing[1])
+        other_info = self.join_lists_to_dict(headings, paragraphs)
+        unsorted_obj = {
+            # "data": self.data,
+            "name": name[0],
+            "address": ",".join(address),
+            "phonenumber": phonenumber,
+            "email_contact": email_contact,
+            "url": url,
+            "short_description": short_description[0],
+        }
+        dictt = {**unsorted_obj, **other_info}
+        info = {self.business: dictt}
+
+        yield info
