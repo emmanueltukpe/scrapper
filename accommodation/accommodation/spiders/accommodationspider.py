@@ -2,9 +2,6 @@ from scrapy import *
 
 
 class Accommodation(Spider):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.business = ""
     
     name = "finelib"
     start_urls = ["https://www.finelib.com/"]
@@ -31,7 +28,7 @@ class Accommodation(Spider):
             yield Request(url=link, callback=self.parse_pages)
 
     def parse_pages(self, response):
-        self.business = response.css("div.middle-curve > h1::text").extract_first()
+        # self.business = response.css("div.middle-curve > h1::text").extract_first()
         links = response.css("div.category-list.newlist > ul > li > a::attr(href)").extract()
         links = [f"https://www.finelib.com{link}" for link in links if link.startswith("/")]
         more_info =  response.css("div.cmpny-lstng.url > a::attr(href)").extract()
@@ -48,8 +45,12 @@ class Accommodation(Spider):
         if links is not []:
             for link in links:
                 yield Request(url=link, callback=self.parse_pages)
-            
+            # body > div.container > div.middle-curve > div > a:nth-child(3)
     def parse_hyperlinks(self, response):
+        business = response.css("div.breadcrumb > a:nth-child(3)::text").extract_first()
+        city = response.css("div.breadcrumb > a:nth-child(2)::text").extract_first()
+        categories = response.css("div.breadcrumb > a::text").extract()
+        categories = categories[3:]
         name = response.css(
             "div.box-headings.box-new-hed > h1 > span::text").extract()
         address = response.css("div.cmpny-lstng-1 > span::text").extract()
@@ -81,6 +82,16 @@ class Accommodation(Spider):
             "short_description": short_description[0],
         }
         dictt = {**unsorted_obj, **other_info}
-        info = {self.business: dictt}
-
-        yield info
+        
+        if categories != []:
+            cat_dict = {}
+            current_dict = cat_dict
+            for e in categories[:-1]:
+                current_dict[e] = {}
+                current_dict = current_dict[e]
+            current_dict[categories[-1]] = dictt
+            res = {city: {business: cat_dict}}
+            yield res
+        else:
+            res = {city: {business: dictt}}
+            yield res
